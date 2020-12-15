@@ -5,6 +5,9 @@ import styles from "./ContactData.module.css";
 import axios from "../../../axios-orders";
 import Input from "../../../components/UI/Input/Input";
 import { connect } from "react-redux";
+import withErrorHandler from "../../../hoc/withErrorHandler/withErrorHandler";
+import * as actions from "../../../store/actions/index";
+import { updateObject, checkValidity } from "../../../shared/utility";
 
 class ContactData extends Component {
   state = {
@@ -45,7 +48,7 @@ class ContactData extends Component {
         validation: {
           required: true,
           minLength: 5,
-          maxLength: 5,
+          maxLength: 10,
         },
         valid: false,
         touched: false,
@@ -81,10 +84,10 @@ class ContactData extends Component {
         elementConfig: {
           options: [
             { value: "fastest", displayValue: "Fastest" },
-            { value: "cheapset", displayValue: "Cheapest" },
+            { value: "cheapest", displayValue: "Cheapest" },
           ],
         },
-        value: "",
+        value: "fastest",
         validation: {},
         valid: true,
       },
@@ -96,9 +99,6 @@ class ContactData extends Component {
   orderHandler = (event) => {
     //firebase로 order데이터, forㅡ데이터(주문자 정보) submit하기
     event.preventDefault();
-    console.log(this.props);
-
-    this.setState({ loading: true });
     const formData = {};
     for (let formElementIdentifier in this.state.orderForm) {
       formData[formElementIdentifier] = this.state.orderForm[
@@ -109,58 +109,34 @@ class ContactData extends Component {
       ingredients: this.props.ings,
       price: this.props.price,
       orderData: formData,
+      userId: this.props.userId,
       // production-ready 모드에서는 서버에서 total을 계산해야한다.
     }; // 사용자들이 가격을 manipulate 하지 못하게 보통 서버쪽에 저장해두기때문에.
 
-    axios
-      .post("/orders.json", order)
-      .then((response) => {
-        this.setState({ loading: false });
-        this.props.history.push("/");
-      })
-      .catch((error) => this.setState({ loading: false }));
+    this.props.onOrderBurger(order, this.props.token);
   };
-
-  checkValidity(value, rules) {
-    let isValid = true; //true인 상태로 시작, 조건문 훑으면서 false/true 결정
-    if (!rules) {
-      //validation이 false면(selectbox등 validation이 필요없는경우) 바로 true반환
-      return true;
-    }
-    if (rules.required) {
-      //칸이 채워졌으면(required)
-      isValid = value.trim() !== "" && isValid;
-      //isValid should be equal to value
-      //if it(value) is not equal to an empry string
-    }
-
-    if (rules.minLength) {
-      isValid = value.length >= rules.minLength && isValid;
-      //isValid 계속 붙이는 이유는 위의 조건 하나라도 fail하면 안돼기 때문에.
-    }
-
-    if (rules.maxLength) {
-      isValid = value.length <= rules.maxLength && isValid;
-    }
-    return isValid;
-  }
 
   inputChangedHandler = (event, inputIdentifier) => {
     //input에 onChange할 때 입력값 value로 만들어주기. (nested object에 접근해서 바꿔야함)
     //state원형 직접적으로 변형시키지 않기 위해서(안그러면 react가 변화인지 모르고 렌더링하지 않음)
     //깊은복사로 복사본 만들어주고, 이를 setState로 바꿔줌.
-    const updatedOrderForm = {
-      ...this.state.orderForm,
-    };
-    const updatedFormElement = { ...updatedOrderForm[inputIdentifier] };
-    updatedFormElement.value = event.target.value;
-    //checkValidity 리턴값은 true나 false임.
-    updatedFormElement.valid = this.checkValidity(
-      updatedFormElement.value,
-      updatedFormElement.validation
+
+    const updatedFormElement = updateObject(
+      this.state.orderForm[inputIdentifier],
+      {
+        value: event.target.value,
+        valid: checkValidity(
+          event.target.value,
+          this.state.orderForm[inputIdentifier].validation
+        ),
+        touched: true,
+      }
     );
-    updatedFormElement.touched = true;
-    updatedOrderForm[inputIdentifier] = updatedFormElement;
+    const updatedOrderForm = updateObject(this.state.orderForm, {
+      [inputIdentifier]: updatedFormElement,
+    });
+    //checkValidity 리턴값은 true나 false임.
+
     let formIsValid = true;
     for (let inputIdentifier in updatedOrderForm) {
       formIsValid = updatedOrderForm[inputIdentifier].valid && formIsValid;
@@ -195,7 +171,7 @@ class ContactData extends Component {
         </Button>
       </form>
     );
-    if (this.state.loading) {
+    if (this.props.loading) {
       form = <Spinner />;
     }
     return (
@@ -209,9 +185,22 @@ class ContactData extends Component {
 
 const mapStateToProps = (state) => {
   return {
-    ings: state.ingredients,
-    price: state.totalPrice,
+    ings: state.burgerBuilder.ingredients,
+    price: state.burgerBuilder.totalPrice,
+    loading: state.orders.loading,
+    token: state.auth.token,
+    userId: state.auth.userId,
   };
 };
 
-export default connect(mapStateToProps)(ContactData);
+const mapDispatchToProps = (dispatch) => {
+  return {
+    onOrderBurger: (orderData, token) =>
+      dispatch(actions.purchaseBurger(orderData, token)),
+  };
+};
+
+export default connect(
+  mapStateToProps,
+  mapDispatchToProps
+)(withErrorHandler(ContactData, axios));
